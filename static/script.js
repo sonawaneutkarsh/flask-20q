@@ -295,12 +295,42 @@ function generateWordCloud(answers) {
 // Initialize player profile
 initializePlayerProfile();
 
+// 🎮 New Game Function - Clear previous game data
+function startNewGame() {
+  if (isHost) {
+    // Clear all previous game data
+    database.ref(`/${room}/players`).remove();
+    database.ref(`/${room}/answers`).remove();
+    database.ref(`/${room}/profiles`).remove();
+    database.ref(`/${room}/chat`).remove();
+    database.ref(`/${room}/reactions`).remove();
+    database.ref(`/${room}/history`).remove();
+    
+    // Reset game state
+    database.ref(`/${room}/current`).set(1);
+    
+    // Clear local data
+    answersHistory = {};
+    playerProfiles = {};
+    
+    // Re-initialize current player
+    initializePlayerProfile();
+    
+    console.log("New game started - all data cleared");
+  }
+}
+
 // Initialize room and questions
 fetch(`/init-room?room=${room}`)
   .then(response => response.json())
   .then(data => {
     console.log("Room initialized:", data);
     updatePlayerStats('game');
+    
+    // If host, start a fresh game
+    if (isHost) {
+      startNewGame();
+    }
   })
   .catch(error => {
     console.error("Error initializing room:", error);
