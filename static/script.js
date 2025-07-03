@@ -95,29 +95,57 @@ function stopAllMusic() {
   currentMusic = null;
 }
 
-// 🔐 Anonymous Authentication
-function signInAnonymously() {
-  return new Promise((resolve, reject) => {
-    auth.signInAnonymously()
-      .then((userCredential) => {
-        currentUser = userCredential.user;
+// 🔐 Authentication with proper error handling
+function initializeAuth() {
+  return new Promise((resolve) => {
+    // Set up auth state listener
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      if (user) {
+        // User is signed in
+        currentUser = user;
         isAuthenticated = true;
-        console.log("✅ User signed in anonymously:", currentUser.uid);
-        resolve(currentUser);
-      })
-      .catch((error) => {
-        console.error("❌ Auth error:", error);
-        alert("Authentication failed. Please refresh the page.");
-        reject(error);
-      });
+        console.log("✅ User authenticated:", user.uid);
+        unsubscribe(); // Stop listening
+        resolve(user);
+      } else {
+        // User is signed out, try to sign in anonymously
+        console.log("🔄 Attempting anonymous sign in...");
+        auth.signInAnonymously()
+          .then(() => {
+            console.log("✅ Anonymous sign in initiated");
+            // Will trigger onAuthStateChanged again with the user
+          })
+          .catch((error) => {
+            console.error("❌ Anonymous sign in failed:", error);
+            // Continue without auth
+            isAuthenticated = false;
+            currentUser = null;
+            unsubscribe(); // Stop listening
+            resolve(null);
+          });
+      }
+    });
+
+    // Timeout fallback
+    setTimeout(() => {
+      if (!isAuthenticated) {
+        console.warn("⏰ Auth timeout, continuing without authentication");
+        unsubscribe(); // Stop listening
+        resolve(null);
+      }
+    }, 8000);
   });
 }
 
 // 🔐 Initialize user after authentication
 async function initializeUser() {
   try {
+    // Show loading message
+    const questionBox = document.getElementById("question-box");
+    questionBox.innerText = "🔐 Authenticating...";
+    
     // Wait for authentication
-    await signInAnonymously();
+    await initializeAuth();
     
     // Now get player name and host status
     playerId = prompt("Enter your name:") || `Player_${Math.floor(Math.random() * 1000)}`;
@@ -130,13 +158,18 @@ async function initializeUser() {
       alert("❌ Wrong password. You'll join as a regular player.");
     }
 
-    console.log("Game initialized for room:", room, "Player:", playerId, "Host:", isHost);
+    console.log("Game initialized for room:", room, "Player:", playerId, "Host:", isHost, "Auth:", isAuthenticated);
     
-    // Initialize the game after authentication
+    // Initialize the game
     initializeGame();
     
   } catch (error) {
     console.error("Failed to initialize user:", error);
+    // Continue anyway with fallback
+    playerId = prompt("Enter your name:") || `Player_${Math.floor(Math.random() * 1000)}`;
+    const hostPassword = prompt("Enter host password (leave empty if you're not host):");
+    isHost = hostPassword === HOST_PASSWORD;
+    initializeGame();
   }
 }
 
@@ -166,11 +199,6 @@ const profileContainer = document.getElementById("player-profiles");
 
 // 👤 Player Profile System
 function initializePlayerProfile() {
-  if (!isAuthenticated || !currentUser) {
-    console.error("Cannot initialize profile - user not authenticated");
-    return;
-  }
-
   const savedProfile = localStorage.getItem(`profile_${playerId}`);
   if (savedProfile) {
     playerProfiles[playerId] = JSON.parse(savedProfile);
@@ -183,7 +211,7 @@ function initializePlayerProfile() {
       questionsAnswered: 0,
       favoriteAnswers: [],
       joinDate: new Date().toISOString(),
-      uid: currentUser.uid // Store Firebase UID
+      uid: currentUser ? currentUser.uid : `temp_${Date.now()}` // Fallback UID
     };
     savePlayerProfile();
   }
@@ -257,11 +285,6 @@ document.querySelector('.theme-controls').appendChild(musicToggleBtn);
 
 // 🧹 Clear History Function
 function clearHistory() {
-  if (!isAuthenticated) {
-    alert("You must be authenticated to clear history!");
-    return;
-  }
-  
   if (confirm("Are you sure you want to clear the answers history? This cannot be undone.")) {
     answersHistory = {};
     updateAnswersHistory();
@@ -275,11 +298,6 @@ clearHistoryBtn.addEventListener('click', clearHistory);
 
 // 🎭 Flying Emoji Reactions
 function sendReaction(emoji) {
-  if (!isAuthenticated) {
-    alert("You must be authenticated to send reactions!");
-    return;
-  }
-  
   database.ref(`/${room}/reactions`).push({
     emoji: emoji,
     player: playerId,
@@ -351,11 +369,6 @@ function generateWordCloud(answers) {
 
 // 🎮 New Game Function - Clear previous game data
 function startNewGame() {
-  if (!isAuthenticated) {
-    alert("You must be authenticated to start a new game!");
-    return;
-  }
-  
   if (isHost) {
     // Clear all previous game data
     database.ref(`/${room}/players`).remove();
@@ -404,7 +417,7 @@ function initializeGame() {
   database.ref(`/${room}/players/${playerId}`).set({
     name: playerId,
     timestamp: firebase.database.ServerValue.TIMESTAMP,
-    uid: currentUser.uid
+    uid: currentUser ? currentUser.uid : `temp_${Date.now()}`
   });
 
   database.ref(`/${room}/players/${playerId}`).onDisconnect().remove();
@@ -488,10 +501,6 @@ function updatePlayerProfilesDisplay() {
 
 // 📄 Export Game Feature
 exportBtn.addEventListener('click', () => {
-  if (!isAuthenticated) {
-    alert("You must be authenticated to export game results!");
-    return;
-  }
   exportGameResults();
 });
 
@@ -643,11 +652,6 @@ function loadQuestion(num) {
 
 // 📤 Submit answer
 function submitAnswer() {
-  if (!isAuthenticated) {
-    alert("You must be authenticated to submit answers!");
-    return;
-  }
-  
   const answer = answerInput.value.trim();
   console.log("Submit clicked, answer:", answer, "answered:", answered);
   
@@ -690,11 +694,6 @@ answerInput.addEventListener('keypress', (e) => {
 
 // 💬 Chat system
 function sendChatMessage() {
-  if (!isAuthenticated) {
-    alert("You must be authenticated to send chat messages!");
-    return;
-  }
-  
   const msg = chatInput.value.trim();
   console.log("Chat send clicked:", msg);
   
@@ -730,11 +729,6 @@ chatInput.addEventListener('keypress', (e) => {
 
 // 🔘 Host manual next
 nextBtn.addEventListener('click', () => {
-  if (!isAuthenticated) {
-    alert("You must be authenticated to control the game!");
-    return;
-  }
-  
   console.log("Next button clicked, isHost:", isHost);
   
   if (!isHost) {
