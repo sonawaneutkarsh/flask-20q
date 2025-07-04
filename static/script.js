@@ -95,44 +95,40 @@ function stopAllMusic() {
   currentMusic = null;
 }
 
-// 🔐 Improved Authentication with better error handling
+// 🔐 Simplified Authentication
 function initializeAuth() {
   return new Promise((resolve, reject) => {
     console.log("🔄 Starting authentication...");
     
-    // Set up auth state listener
-    const unsubscribe = auth.onAuthStateChanged((user) => {
-      if (user) {
-        // User is signed in
-        currentUser = user;
-        isAuthenticated = true;
-        console.log("✅ User authenticated:", user.uid);
-        unsubscribe(); // Stop listening
-        resolve(user);
-      } else {
-        // User is signed out, try to sign in anonymously
-        console.log("🔄 No user found, signing in anonymously...");
-        auth.signInAnonymously()
-          .then(() => {
-            console.log("✅ Anonymous sign in initiated");
-            // Will trigger onAuthStateChanged again with the user
-          })
-          .catch((error) => {
-            console.error("❌ Anonymous sign in failed:", error);
-            unsubscribe(); // Stop listening
-            reject(error);
-          });
-      }
-    });
-
-    // Timeout fallback
-    setTimeout(() => {
-      if (!isAuthenticated) {
-        console.warn("⏰ Auth timeout");
-        unsubscribe(); // Stop listening
-        reject(new Error("Authentication timeout"));
-      }
-    }, 10000); // Increased timeout to 10 seconds
+    // First, try to sign in anonymously immediately
+    auth.signInAnonymously()
+      .then(() => {
+        console.log("✅ Anonymous sign in initiated");
+        
+        // Wait for auth state change
+        const unsubscribe = auth.onAuthStateChanged((user) => {
+          if (user) {
+            console.log("✅ User authenticated:", user.uid);
+            currentUser = user;
+            isAuthenticated = true;
+            unsubscribe();
+            resolve(user);
+          }
+        });
+        
+        // Timeout fallback
+        setTimeout(() => {
+          if (!isAuthenticated) {
+            console.warn("⏰ Auth timeout");
+            unsubscribe();
+            reject(new Error("Authentication timeout"));
+          }
+        }, 5000);
+      })
+      .catch((error) => {
+        console.error("❌ Anonymous sign in failed:", error);
+        reject(error);
+      });
   });
 }
 
@@ -169,7 +165,7 @@ async function initializeUser() {
   } catch (error) {
     console.error("❌ Failed to initialize user:", error);
     const questionBox = document.getElementById("question-box");
-    questionBox.innerText = "❌ Connection failed. Please refresh the page.";
+    questionBox.innerText = `❌ Connection failed: ${error.message}`;
     
     // Show retry button
     const retryBtn = document.createElement('button');
@@ -429,10 +425,13 @@ function startNewGame() {
 // 🎮 Initialize Game (called after authentication)
 async function initializeGame() {
   try {
+    console.log("🎮 Initializing game...");
+    
     // Initialize player profile
     initializePlayerProfile();
 
     // Initialize room and questions
+    console.log("📡 Fetching room initialization...");
     const response = await fetch(`/init-room?room=${room}`);
     const data = await response.json();
     console.log("✅ Room initialized:", data);
@@ -443,7 +442,8 @@ async function initializeGame() {
       startNewGame();
     }
 
-    // 👥 Track live players and profiles with error handling
+    // 👥 Track live players and profiles
+    console.log("👥 Setting up player tracking...");
     await database.ref(`/${room}/players/${playerId}`).set({
       name: playerId,
       timestamp: firebase.database.ServerValue.TIMESTAMP,
@@ -456,6 +456,7 @@ async function initializeGame() {
       const players = snap.val() || {};
       const playerCount = Object.keys(players).length;
       playerCountBox.innerText = `Players online: ${playerCount}`;
+      console.log("👥 Player count updated:", playerCount);
       
       // Update player profiles display
       updatePlayerProfilesDisplay();
@@ -473,6 +474,7 @@ async function initializeGame() {
     });
 
     // 👂 Listen for current question number
+    console.log("📝 Setting up question listener...");
     database.ref(`/${room}/current`).on("value", snapshot => {
       const q = snapshot.val() || 1;
       console.log("📝 Current question changed to:", q);
@@ -488,15 +490,18 @@ async function initializeGame() {
     });
 
     // Load saved history from Firebase
+    console.log("📚 Loading history...");
     database.ref(`/${room}/history`).once("value").then(snapshot => {
       const history = snapshot.val() || {};
       answersHistory = history;
       updateAnswersHistory();
+      console.log("✅ History loaded");
     }).catch(error => {
       console.error("❌ History load failed:", error);
     });
 
-    // 💬 Chat system with error handling
+    // 💬 Chat system
+    console.log("💬 Setting up chat...");
     database.ref(`/${room}/chat`).on("child_added", snap => {
       const data = snap.val();
       if (data && data.name && data.message) {
@@ -626,7 +631,7 @@ function loadQuestion(num) {
   waitingStatus.innerText = "";
   wordCloudContainer.style.display = 'none';
 
-  // Load question with error handling
+  // Load question
   database.ref(`/questions/q${num}`).once("value").then(snapshot => {
     const question = snapshot.val();
     if (question) {
@@ -641,7 +646,7 @@ function loadQuestion(num) {
     questionBox.innerText = "❌ Error loading question. Please refresh.";
   });
 
-  // Watch for answers with error handling
+  // Watch for answers
   database.ref(`/${room}/answers/q${num}`).on("value", snap => {
     const answers = snap.val() || {};
     const answerEntries = Object.entries(answers);
