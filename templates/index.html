@@ -7,17 +7,15 @@
   <link rel="stylesheet" href="/static/style.css" />
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 </head>
 <body>
   <div class="header">
     <h1>🎯 20 Questions Game</h1>
     <div class="theme-controls">
-      <button class="theme-btn pav" onclick="setTheme('pav')">Pav</button>
-      <button class="theme-btn kari" onclick="setTheme('kari')">Kari</button>
-      <button class="theme-btn oman" onclick="setTheme('oman')">Oman</button>
-      <button class="theme-btn raj" onclick="setTheme('raj')">Raj</button>
-      <button class="theme-btn biswa" onclick="setTheme('biswa')">Biswa</button>
+      <button class="theme-btn pav" onclick="setTheme('pav')">☀️ Pav</button>
+      <button class="theme-btn kari" onclick="setTheme('kari')">🌙 Kari</button>
+      <button class="theme-btn oman" onclick="setTheme('oman')">💜 Oman</button>
+      <button class="theme-btn raj" onclick="setTheme('raj')">🐾 Raj</button>
     </div>
   </div>
   
@@ -28,7 +26,7 @@
   <!-- Player Profiles -->
   <div id="player-profiles" class="player-profiles-container"></div>
   
-  <div id="question-box">🔐 Authenticating...</div>
+  <div id="question-box">Loading questions...</div>
 
   <!-- Emoji Reactions -->
   <div class="reaction-buttons">
