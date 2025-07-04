@@ -117,6 +117,7 @@ const playerCountBox = document.getElementById("player-count");
 const historyContent = document.getElementById("history-content");
 const exportBtn = document.getElementById("export-btn");
 const clearHistoryBtn = document.getElementById("clear-history-btn");
+const clearChatBtn = document.getElementById("clear-chat-btn");
 const emojiContainer = document.getElementById("emoji-reactions");
 const wordCloudContainer = document.getElementById("word-cloud");
 const profileContainer = document.getElementById("player-profiles");
@@ -220,6 +221,31 @@ function clearHistory() {
 }
 
 clearHistoryBtn.addEventListener('click', clearHistory);
+
+// 🧹 Clear Chat Function
+function clearChat() {
+  if (!isHost) {
+    alert("Only the host can clear the chat!");
+    return;
+  }
+  
+  if (confirm("Are you sure you want to clear all chat messages? This cannot be undone.")) {
+    // Clear chat from Firebase
+    database.ref(`/${room}/chat`).remove()
+      .then(() => {
+        // Clear local chat display
+        chatBox.innerHTML = "";
+        alert("Chat cleared! 🧹");
+        console.log("✅ Chat cleared by host");
+      })
+      .catch(error => {
+        console.error("❌ Error clearing chat:", error);
+        alert("Error clearing chat. Please try again.");
+      });
+  }
+}
+
+clearChatBtn.addEventListener('click', clearChat);
 
 // 🎭 Flying Emoji Reactions
 function sendReaction(emoji) {
@@ -608,6 +634,16 @@ database.ref(`/${room}/chat`).on("child_added", snap => {
   }
 });
 
+// Listen for chat being cleared
+database.ref(`/${room}/chat`).on("value", snap => {
+  const messages = snap.val();
+  if (!messages) {
+    // Chat was cleared
+    chatBox.innerHTML = "";
+    console.log("💬 Chat was cleared");
+  }
+});
+
 // 🔘 Host manual next
 nextBtn.addEventListener('click', () => {
   console.log("Next button clicked, isHost:", isHost);
@@ -639,8 +675,10 @@ nextBtn.addEventListener('click', () => {
 // Show/hide controls based on host status
 if (isHost) {
   nextBtn.style.display = "inline-block";
+  clearChatBtn.style.display = "inline-block";
 } else {
   nextBtn.style.display = "none";
+  clearChatBtn.style.display = "none";
 }
 
 console.log("Script loaded successfully");

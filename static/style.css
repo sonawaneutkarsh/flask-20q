@@ -522,11 +522,35 @@ button:disabled {
   flex-direction: column;
 }
 
-#chat-sidebar h3 {
-  margin-top: 0;
-  color: var(--text-color);
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
   border-bottom: 2px solid var(--border-color);
   padding-bottom: 10px;
+}
+
+.chat-header h3 {
+  margin: 0;
+  color: var(--text-color);
+}
+
+.clear-chat-btn {
+  background: var(--accent-color) !important;
+  color: white;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 15px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-left: 0 !important;
+}
+
+.clear-chat-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 6px var(--shadow);
 }
 
 #chat-box {
