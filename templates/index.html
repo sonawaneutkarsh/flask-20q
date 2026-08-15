@@ -7,8 +7,21 @@
   <link rel="stylesheet" href="/static/style.css" />
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
 </head>
 <body>
+  <!-- Join Screen -->
+  <div id="join-overlay" class="join-overlay">
+    <div class="join-card">
+      <h2>🎯 Join the Game</h2>
+      <p class="join-room">Room: <b id="join-room-name">default-room</b></p>
+      <input type="text" id="join-name" placeholder="Your name" maxlength="24" autocomplete="off" />
+      <input type="password" id="join-host-password" placeholder="Host password (optional)" autocomplete="off" />
+      <button id="join-btn">Join Room</button>
+      <p id="join-error" class="join-error"></p>
+    </div>
+  </div>
+
   <div class="header">
     <h1>🎯 20 Questions Game</h1>
     <div class="theme-controls">
@@ -16,6 +29,7 @@
       <button class="theme-btn kari" onclick="setTheme('kari')">🌙 Kari</button>
       <button class="theme-btn oman" onclick="setTheme('oman')">💜 Oman</button>
       <button class="theme-btn raj" onclick="setTheme('raj')">🐾 Raj</button>
+      <button class="theme-btn biswa" onclick="setTheme('biswa')">🌸 Biswa</button>
     </div>
   </div>
   
@@ -50,6 +64,7 @@
   <div id="answers-list"></div>
 
   <button id="next-btn" style="display: none;">Next Question (Host Only)</button>
+  <button id="new-game-btn" style="display: none;">🆕 New Game (Host Only)</button>
 
   <!-- Export Section -->
   <div class="export-section">
