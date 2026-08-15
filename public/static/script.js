@@ -15,17 +15,10 @@ const database = firebase.database();
 const urlParams = new URLSearchParams(window.location.search);
 const room = urlParams.get("room") || "default-room";
 
-// 🔐 Password-based host system
-const HOST_PASSWORD = "host123"; // You can change this
-let playerId = prompt("Enter your name:") || `Player_${Math.floor(Math.random() * 1000)}`;
-const hostPassword = prompt("Enter host password (leave empty if you're not host):");
-const isHost = hostPassword === HOST_PASSWORD;
-
-if (isHost) {
-  alert("✅ You are now the host!");
-} else if (hostPassword && hostPassword !== HOST_PASSWORD) {
-  alert("❌ Wrong password. You'll join as a regular player.");
-}
+// 🎯 Join state (replaces the old prompt()-based login)
+let playerId = null;
+let isHost = false;
+let hostPassword = "";
 
 // 🎵 Music System
 let musicEnabled = true;
@@ -50,7 +43,7 @@ Object.values(musicTracks).forEach(audio => {
 function toggleMusic() {
   musicEnabled = !musicEnabled;
   const btn = document.getElementById('music-toggle');
-  
+
   if (musicEnabled) {
     btn.textContent = '🔊 Music On';
     btn.classList.remove('music-off');
@@ -63,16 +56,16 @@ function toggleMusic() {
     // Stop all music
     stopAllMusic();
   }
-  
+
   localStorage.setItem('musicEnabled', musicEnabled);
 }
 
 function playThemeMusic(theme) {
   if (!musicEnabled) return;
-  
+
   // Stop current music
   stopAllMusic();
-  
+
   // Play new theme music
   if (musicTracks[theme]) {
     currentMusic = musicTracks[theme];
@@ -100,6 +93,7 @@ function stopAllMusic() {
 // 🎮 Game variables
 let currentQ = 1;
 let answered = false;
+let gameStarted = false; // Guard against startGame() being called twice (join retry / auto-join)
 let answersHistory = {}; // Store all answers history
 let playerProfiles = {}; // Store player profiles
 
@@ -108,6 +102,7 @@ const questionBox = document.getElementById("question-box");
 const answerInput = document.getElementById("answer-input");
 const submitBtn = document.getElementById("submit-btn");
 const nextBtn = document.getElementById("next-btn");
+const newGameBtn = document.getElementById("new-game-btn");
 const chatBox = document.getElementById("chat-box");
 const chatInput = document.getElementById("chat-input");
 const chatSend = document.getElementById("chat-send");
@@ -122,7 +117,16 @@ const emojiContainer = document.getElementById("emoji-reactions");
 const wordCloudContainer = document.getElementById("word-cloud");
 const profileContainer = document.getElementById("player-profiles");
 
-console.log("Game initialized for room:", room, "Player:", playerId, "Host:", isHost);
+// 🔒 Escape user-controlled content before rendering it into the DOM
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, char => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[char]);
+}
 
 // 👤 Player Profile System
 function initializePlayerProfile() {
@@ -141,7 +145,7 @@ function initializePlayerProfile() {
     };
     savePlayerProfile();
   }
-  
+
   // Sync to Firebase
   database.ref(`/${room}/profiles/${playerId}`).set(playerProfiles[playerId]);
 }
@@ -162,7 +166,7 @@ function savePlayerProfile() {
 
 function updatePlayerStats(action) {
   if (!playerProfiles[playerId]) return;
-  
+
   switch(action) {
     case 'answer':
       playerProfiles[playerId].questionsAnswered++;
@@ -171,7 +175,7 @@ function updatePlayerStats(action) {
       playerProfiles[playerId].gamesPlayed++;
       break;
   }
-  
+
   savePlayerProfile();
   database.ref(`/${room}/profiles/${playerId}`).set(playerProfiles[playerId]);
 }
@@ -180,11 +184,12 @@ function updatePlayerStats(action) {
 function setTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   localStorage.setItem('theme', theme);
-  
+
   // Update active button
   document.querySelectorAll('.theme-btn').forEach(btn => btn.classList.remove('active'));
-  document.querySelector(`.theme-btn.${theme}`).classList.add('active');
-  
+  const activeBtn = document.querySelector(`.theme-btn.${theme}`);
+  if (activeBtn) activeBtn.classList.add('active');
+
   // Play theme music
   playThemeMusic(theme);
 }
@@ -209,14 +214,22 @@ if (!musicEnabled) musicToggleBtn.classList.add('music-off');
 // Add music toggle to theme controls
 document.querySelector('.theme-controls').appendChild(musicToggleBtn);
 
-// 🧹 Clear History Function
+// 🧹 Clear History Function (host-only, like clear chat)
 function clearHistory() {
+  if (!isHost) {
+    alert("Only the host can clear the history!");
+    return;
+  }
+
   if (confirm("Are you sure you want to clear the answers history? This cannot be undone.")) {
     answersHistory = {};
     updateAnswersHistory();
     // Clear from Firebase
-    database.ref(`/${room}/history`).remove();
-    alert("History cleared! 🧹");
+    database.ref(`/${room}/history`).remove()
+      .catch(error => {
+        console.error("Error clearing history:", error);
+        alert("Error clearing history. Please try again.");
+      });
   }
 }
 
@@ -228,7 +241,7 @@ function clearChat() {
     alert("Only the host can clear the chat!");
     return;
   }
-  
+
   if (confirm("Are you sure you want to clear all chat messages? This cannot be undone.")) {
     // Clear chat from Firebase
     database.ref(`/${room}/chat`).remove()
@@ -254,7 +267,7 @@ function sendReaction(emoji) {
     player: playerId,
     timestamp: firebase.database.ServerValue.TIMESTAMP
   });
-  
+
   createFlyingEmoji(emoji);
 }
 
@@ -262,113 +275,70 @@ function createFlyingEmoji(emoji) {
   const emojiEl = document.createElement('div');
   emojiEl.className = 'flying-emoji';
   emojiEl.textContent = emoji;
-  
+
   emojiEl.style.left = Math.random() * window.innerWidth + 'px';
   emojiEl.style.top = window.innerHeight + 'px';
-  
+
   emojiContainer.appendChild(emojiEl);
-  
+
   setTimeout(() => {
     emojiEl.remove();
   }, 3000);
 }
 
-// Listen for reactions from other players
-database.ref(`/${room}/reactions`).on("child_added", snap => {
-  const reaction = snap.val();
-  if (reaction && reaction.player !== playerId) {
-    createFlyingEmoji(reaction.emoji);
-  }
-});
-
 // ☁️ Word Cloud Generation
 function generateWordCloud(answers) {
   if (!answers || Object.keys(answers).length === 0) return;
-  
+
   // Combine all answers into one text
   const allText = Object.values(answers).join(' ').toLowerCase();
-  
-  // Simple word frequency counter
-  const words = allText.split(/\s+/).filter(word => 
-    word.length > 2 && 
-    !['the', 'and', 'but', 'for', 'are', 'with', 'this', 'that', 'have', 'from', 'they', 'know', 'want', 'been', 'good', 'much', 'some', 'time', 'very', 'when', 'come', 'here', 'just', 'like', 'long', 'make', 'many', 'over', 'such', 'take', 'than', 'them', 'well', 'were'].includes(word)
-  );
-  
+
+  // Simple word frequency counter (strip punctuation so "pizza!" counts as "pizza")
+  const words = allText.split(/\s+/)
+    .map(word => word.replace(/[^\p{L}\p{N}']/gu, ''))
+    .filter(word =>
+      word.length > 2 &&
+      !['the', 'and', 'but', 'for', 'are', 'with', 'this', 'that', 'have', 'from', 'they', 'know', 'want', 'been', 'good', 'much', 'some', 'time', 'very', 'when', 'come', 'here', 'just', 'like', 'long', 'make', 'many', 'over', 'such', 'take', 'than', 'them', 'well', 'were'].includes(word)
+    );
+
   const wordCount = {};
   words.forEach(word => {
     wordCount[word] = (wordCount[word] || 0) + 1;
   });
-  
+
   // Sort by frequency
   const sortedWords = Object.entries(wordCount)
     .sort(([,a], [,b]) => b - a)
     .slice(0, 20); // Top 20 words
-  
+
   // Create word cloud HTML
   let cloudHTML = '<div class="word-cloud-title">☁️ Word Cloud</div><div class="word-cloud-words">';
-  
+
   sortedWords.forEach(([word, count]) => {
     const size = Math.min(12 + count * 4, 32); // Scale font size
     const opacity = Math.min(0.5 + count * 0.1, 1);
-    cloudHTML += `<span class="word-cloud-word" style="font-size: ${size}px; opacity: ${opacity}">${word}</span> `;
+    cloudHTML += `<span class="word-cloud-word" style="font-size: ${size}px; opacity: ${opacity}">${escapeHtml(word)}</span> `;
   });
-  
+
   cloudHTML += '</div>';
   wordCloudContainer.innerHTML = cloudHTML;
   wordCloudContainer.style.display = 'block';
 }
 
-// Initialize player profile
-initializePlayerProfile();
-
-// Initialize room and questions
-fetch(`/init-room?room=${room}`)
-  .then(response => response.json())
-  .then(data => {
-    console.log("Room initialized:", data);
-    updatePlayerStats('game');
-  })
-  .catch(error => {
-    console.error("Error initializing room:", error);
-  });
-
-// 👥 Track live players and profiles
-database.ref(`/${room}/players/${playerId}`).set({
-  name: playerId,
-  timestamp: firebase.database.ServerValue.TIMESTAMP
-});
-
-database.ref(`/${room}/players/${playerId}`).onDisconnect().remove();
-
-database.ref(`/${room}/players`).on("value", snap => {
-  const players = snap.val() || {};
-  const playerCount = Object.keys(players).length;
-  playerCountBox.innerText = `Players online: ${playerCount}`;
-  
-  // Update player profiles display
-  updatePlayerProfilesDisplay();
-});
-
-// Listen for player profiles
-database.ref(`/${room}/profiles`).on("value", snap => {
-  const profiles = snap.val() || {};
-  Object.assign(playerProfiles, profiles);
-  updatePlayerProfilesDisplay();
-});
-
+// 👥 Player profiles display
 function updatePlayerProfilesDisplay() {
   let html = '<h3>👥 Players</h3>';
-  
+
   Object.entries(playerProfiles).forEach(([name, profile]) => {
     html += `
-      <div class="player-profile" style="border-left: 4px solid ${profile.color}">
-        <span class="player-avatar">${profile.avatar}</span>
-        <span class="player-name">${profile.name}</span>
-        <span class="player-stats">${profile.questionsAnswered} answers</span>
+      <div class="player-profile" style="border-left: 4px solid ${escapeHtml(profile.color)}">
+        <span class="player-avatar">${escapeHtml(profile.avatar)}</span>
+        <span class="player-name">${escapeHtml(profile.name)}</span>
+        <span class="player-stats">${escapeHtml(profile.questionsAnswered)} answers</span>
       </div>
     `;
   });
-  
+
   profileContainer.innerHTML = html;
 }
 
@@ -382,14 +352,14 @@ function exportGameResults() {
   exportData += `Room: ${room}\n`;
   exportData += `Date: ${new Date().toLocaleDateString()}\n`;
   exportData += `Players: ${Object.keys(playerProfiles).length}\n\n`;
-  
+
   // Player profiles
   exportData += `👥 PLAYER PROFILES:\n`;
   Object.entries(playerProfiles).forEach(([name, profile]) => {
     exportData += `${profile.avatar} ${profile.name} - ${profile.questionsAnswered} answers, ${profile.gamesPlayed} games\n`;
   });
   exportData += '\n';
-  
+
   // Questions and answers
   Object.entries(answersHistory).forEach(([qNum, data]) => {
     exportData += `Q${qNum}: ${data.question}\n`;
@@ -398,7 +368,7 @@ function exportGameResults() {
     });
     exportData += '\n';
   });
-  
+
   const blob = new Blob([exportData], { type: 'text/plain' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -408,7 +378,7 @@ function exportGameResults() {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  
+
   alert('Game results exported successfully! 📄');
 }
 
@@ -425,13 +395,13 @@ function updateAnswersHistory() {
       const questionData = answersHistory[qNum];
       historyHTML += `
         <div class="history-question">
-          <h4>Q${qNum}: ${questionData.question}</h4>
+          <h4>Q${qNum}: ${escapeHtml(questionData.question)}</h4>
           <ul class="history-answers">
             ${Object.entries(questionData.answers).map(([name, answer]) => {
               const profile = playerProfiles[name] || {};
-              return `<li style="border-left: 3px solid ${profile.color || '#ccc'}">
-                <span class="answer-avatar">${profile.avatar || '👤'}</span>
-                <b>${name}:</b> ${answer}
+              return `<li style="border-left: 3px solid ${escapeHtml(profile.color || '#ccc')}">
+                <span class="answer-avatar">${escapeHtml(profile.avatar || '👤')}</span>
+                <b>${escapeHtml(name)}:</b> ${escapeHtml(answer)}
               </li>`;
             }).join('')}
           </ul>
@@ -439,13 +409,18 @@ function updateAnswersHistory() {
       `;
     }
   }
-  
+
   historyContent.innerHTML = historyHTML;
 }
 
 // 🧠 Load and watch question
 function loadQuestion(num) {
   console.log("Loading question:", num);
+
+  // Stop listening to the previous question's answers before switching, so
+  // stale snapshots from earlier questions can't wipe the current view.
+  database.ref(`/${room}/answers/q${currentQ}`).off();
+
   currentQ = num;
   answered = false;
   answerInput.value = "";
@@ -453,7 +428,7 @@ function loadQuestion(num) {
   waitingStatus.innerText = "";
   wordCloudContainer.style.display = 'none';
 
-  database.ref(`/questions/q${num}`).once("value").then(snapshot => {
+  database.ref(`/${room}/questions/q${num}`).once("value").then(snapshot => {
     const question = snapshot.val();
     if (question) {
       questionBox.innerText = question;
@@ -471,24 +446,24 @@ function loadQuestion(num) {
   database.ref(`/${room}/answers/q${num}`).on("value", snap => {
     const answers = snap.val() || {};
     const answerEntries = Object.entries(answers);
-    
+
     if (answerEntries.length > 0) {
       let html = '<ul>';
       answerEntries.forEach(([name, ans]) => {
         const profile = playerProfiles[name] || {};
-        html += `<li style="border-left: 3px solid ${profile.color || '#ccc'}">
-          <span class="answer-avatar">${profile.avatar || '👤'}</span>
-          <b>${name}:</b> ${ans}
+        html += `<li style="border-left: 3px solid ${escapeHtml(profile.color || '#ccc')}">
+          <span class="answer-avatar">${escapeHtml(profile.avatar || '👤')}</span>
+          <b>${escapeHtml(name)}:</b> ${escapeHtml(ans)}
         </li>`;
       });
       html += '</ul>';
       answersList.innerHTML = html;
-      
+
       // Generate word cloud
       generateWordCloud(answers);
-      
+
       // Store in history
-      database.ref(`/questions/q${num}`).once("value").then(questionSnap => {
+      database.ref(`/${room}/questions/q${num}`).once("value").then(questionSnap => {
         const questionText = questionSnap.val();
         if (questionText) {
           answersHistory[num] = {
@@ -496,7 +471,7 @@ function loadQuestion(num) {
             answers: answers
           };
           updateAnswersHistory();
-          
+
           // Save to Firebase history
           database.ref(`/${room}/history/q${num}`).set(answersHistory[num]);
         }
@@ -511,9 +486,9 @@ function loadQuestion(num) {
       const players = playerSnap.val() || {};
       const total = Object.keys(players).length;
       const submitted = Object.keys(answers).length;
-      
+
       console.log(`Answers: ${submitted}/${total}`);
-      
+
       if (submitted < total && total > 0) {
         waitingStatus.innerText = `Waiting for ${total - submitted} more answers...`;
       } else if (submitted === total && total > 0) {
@@ -527,17 +502,17 @@ function loadQuestion(num) {
 function submitAnswer() {
   const answer = answerInput.value.trim();
   console.log("Submit clicked, answer:", answer, "answered:", answered);
-  
+
   if (answered) {
     alert("You have already answered this question!");
     return;
   }
-  
+
   if (!answer) {
     alert("Please enter an answer!");
     return;
   }
-  
+
   database.ref(`/${room}/answers/q${currentQ}/${playerId}`).set(answer)
     .then(() => {
       console.log("Answer submitted successfully");
@@ -545,7 +520,7 @@ function submitAnswer() {
       answerInput.value = "";
       submitBtn.textContent = "Submitted!";
       submitBtn.disabled = true;
-      
+
       // Update player stats
       updatePlayerStats('answer');
     })
@@ -555,47 +530,18 @@ function submitAnswer() {
     });
 }
 
-submitBtn.addEventListener('click', submitAnswer);
-
-// ⌨️ Enable submit on Enter key for answer input
-answerInput.addEventListener('keypress', (e) => {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    submitAnswer();
-  }
-});
-
-// 👂 Listen for current question number
-database.ref(`/${room}/current`).on("value", snapshot => {
-  const q = snapshot.val() || 1;
-  console.log("Current question changed to:", q);
-  
-  // Reset submit button when question changes
-  submitBtn.textContent = "Submit Answer";
-  submitBtn.disabled = false;
-  
-  loadQuestion(q);
-});
-
-// Load saved history from Firebase
-database.ref(`/${room}/history`).once("value").then(snapshot => {
-  const history = snapshot.val() || {};
-  answersHistory = history;
-  updateAnswersHistory();
-});
-
 // 💬 Chat system
 function sendChatMessage() {
   const msg = chatInput.value.trim();
   console.log("Chat send clicked:", msg);
-  
+
   if (!msg) {
     alert("Please enter a message!");
     return;
   }
-  
+
   const profile = playerProfiles[playerId] || {};
-  
+
   database.ref(`/${room}/chat`).push({
     name: playerId,
     message: msg,
@@ -610,75 +556,286 @@ function sendChatMessage() {
   });
 }
 
-chatSend.addEventListener('click', sendChatMessage);
+// 🎯 Join flow
+const joinOverlay = document.getElementById("join-overlay");
+const joinNameInput = document.getElementById("join-name");
+const joinHostPasswordInput = document.getElementById("join-host-password");
+const joinBtn = document.getElementById("join-btn");
+const joinError = document.getElementById("join-error");
+const joinRoomName = document.getElementById("join-room-name");
 
-chatInput.addEventListener('keypress', (e) => {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    sendChatMessage();
-  }
-});
+joinRoomName.textContent = room;
 
-database.ref(`/${room}/chat`).on("child_added", snap => {
-  const data = snap.val();
-  if (data && data.name && data.message) {
-    const msgEl = document.createElement("div");
-    msgEl.className = "chat-message";
-    msgEl.innerHTML = `
-      <span class="chat-avatar" style="color: ${data.color || '#333'}">${data.avatar || '👤'}</span>
-      <b>${data.name}:</b> ${data.message}
-    `;
-    chatBox.appendChild(msgEl);
-    chatBox.scrollTop = chatBox.scrollHeight;
-    console.log("Chat message added:", data);
-  }
-});
-
-// Listen for chat being cleared
-database.ref(`/${room}/chat`).on("value", snap => {
-  const messages = snap.val();
-  if (!messages) {
-    // Chat was cleared
-    chatBox.innerHTML = "";
-    console.log("💬 Chat was cleared");
-  }
-});
-
-// 🔘 Host manual next
-nextBtn.addEventListener('click', () => {
-  console.log("Next button clicked, isHost:", isHost);
-  
-  if (!isHost) {
-    alert("Only the host can go to the next question!");
-    return;
-  }
-  
-  database.ref(`/${room}/current`).once("value").then(snap => {
-    const current = snap.val() || 1;
-    console.log("Current question:", current);
-    
-    if (current < 20) {
-      database.ref(`/${room}/current`).set(current + 1)
-        .then(() => {
-          console.log("Advanced to question:", current + 1);
-        })
-        .catch(error => {
-          console.error("Error advancing question:", error);
-        });
-    } else {
-      questionBox.innerText = "🎉 Game Over!";
-      alert("Game completed!");
-    }
-  });
-});
-
-// Show/hide controls based on host status
-if (isHost) {
-  nextBtn.style.display = "inline-block";
-  clearChatBtn.style.display = "inline-block";
-} else {
-  nextBtn.style.display = "none";
-  clearChatBtn.style.display = "none";
+function sanitizePlayerName(name) {
+  // Firebase keys cannot contain . $ # [ ] / or control characters
+  return name.replace(/[.#$/[\]\u0000-\u001F]/g, '').trim().slice(0, 24);
 }
 
-console.log("Script loaded successfully");
+function showJoinScreen() {
+  joinOverlay.style.display = 'flex';
+  const savedName = localStorage.getItem('playerName');
+  if (savedName) joinNameInput.value = savedName;
+  joinNameInput.focus();
+}
+
+function hideJoinScreen() {
+  joinOverlay.style.display = 'none';
+}
+
+async function joinGame() {
+  const rawName = joinNameInput.value.trim();
+  const password = joinHostPasswordInput.value;
+  joinError.textContent = '';
+
+  const name = sanitizePlayerName(rawName);
+  if (!name) {
+    joinError.textContent = 'Please enter a valid name (no special characters).';
+    return;
+  }
+
+  joinBtn.disabled = true;
+  joinBtn.textContent = 'Joining...';
+
+  try {
+    const res = await fetch('/verify-host', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    const data = await res.json();
+    localStorage.setItem('playerName', name);
+    await startGame(name, !!data.isHost, password);
+  } catch (error) {
+    console.error("Error joining:", error);
+    joinError.textContent = 'Could not join the room. Please try again.';
+    joinBtn.disabled = false;
+    joinBtn.textContent = 'Join Room';
+  }
+}
+
+joinBtn.addEventListener('click', joinGame);
+joinNameInput.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') joinGame();
+});
+joinHostPasswordInput.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') joinGame();
+});
+
+// 🎮 Start the game for a joined player
+async function startGame(name, hostStatus, password) {
+  // Only run the setup once — joining again (or the sessionStorage auto-join)
+  // must not attach duplicate Firebase listeners or DOM handlers.
+  if (gameStarted) return;
+  gameStarted = true;
+
+  playerId = name;
+  isHost = hostStatus;
+  hostPassword = password || '';
+  sessionStorage.setItem('join', JSON.stringify({ name: playerId, isHost }));
+  hideJoinScreen();
+
+  console.log("Game initialized for room:", room, "Player:", playerId, "Host:", isHost);
+
+  // 🔐 Sign in anonymously so the Realtime Database rules (auth != null) allow access
+  try {
+    await firebase.auth().signInAnonymously();
+  } catch (error) {
+    console.error("Anonymous sign-in failed:", error);
+  }
+
+  initializePlayerProfile();
+
+  // Initialize room and questions
+  fetch(`/init-room?room=${encodeURIComponent(room)}`)
+    .then(response => response.json())
+    .then(data => {
+      console.log("Room initialized:", data);
+      updatePlayerStats('game');
+    })
+    .catch(error => {
+      console.error("Error initializing room:", error);
+    });
+
+  // 👥 Track live players and profiles
+  database.ref(`/${room}/players/${playerId}`).set({
+    name: playerId,
+    timestamp: firebase.database.ServerValue.TIMESTAMP
+  });
+
+  database.ref(`/${room}/players/${playerId}`).onDisconnect().remove();
+
+  database.ref(`/${room}/players`).on("value", snap => {
+    const players = snap.val() || {};
+    const playerCount = Object.keys(players).length;
+    playerCountBox.innerText = `Players online: ${playerCount}`;
+
+    // Update player profiles display
+    updatePlayerProfilesDisplay();
+  });
+
+  // Listen for player profiles
+  database.ref(`/${room}/profiles`).on("value", snap => {
+    const profiles = snap.val() || {};
+    Object.assign(playerProfiles, profiles);
+    updatePlayerProfilesDisplay();
+  });
+
+  // Listen for reactions from other players. Skip reactions that are older than
+  // a minute so a page refresh doesn't replay every emoji from the whole session.
+  database.ref(`/${room}/reactions`).on("child_added", snap => {
+    const reaction = snap.val();
+    if (!reaction || reaction.player === playerId) return;
+    const now = Date.now();
+    const ts = reaction.timestamp || now;
+    if (now - ts > 60000) return;
+    createFlyingEmoji(reaction.emoji);
+  });
+
+  // 👂 Listen for current question number
+  database.ref(`/${room}/current`).on("value", snapshot => {
+    const q = snapshot.val() || 1;
+    console.log("Current question changed to:", q);
+
+    // Reset submit button when question changes
+    submitBtn.textContent = "Submit Answer";
+    submitBtn.disabled = false;
+
+    loadQuestion(q);
+  });
+
+  // Load saved history from Firebase
+  database.ref(`/${room}/history`).once("value").then(snapshot => {
+    const history = snapshot.val() || {};
+    answersHistory = history;
+    updateAnswersHistory();
+  });
+
+  // 📤 Submit answer handlers
+  submitBtn.addEventListener('click', submitAnswer);
+  answerInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submitAnswer();
+    }
+  });
+
+  // 💬 Chat handlers
+  chatSend.addEventListener('click', sendChatMessage);
+  chatInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      sendChatMessage();
+    }
+  });
+
+  database.ref(`/${room}/chat`).on("child_added", snap => {
+    const data = snap.val();
+    if (data && data.name && data.message) {
+      const msgEl = document.createElement("div");
+      msgEl.className = "chat-message";
+      msgEl.innerHTML = `
+        <span class="chat-avatar" style="color: ${escapeHtml(data.color || '#333')}">${escapeHtml(data.avatar || '👤')}</span>
+        <b>${escapeHtml(data.name)}:</b> ${escapeHtml(data.message)}
+      `;
+      chatBox.appendChild(msgEl);
+      chatBox.scrollTop = chatBox.scrollHeight;
+      console.log("Chat message added:", data);
+    }
+  });
+
+  // Listen for chat being cleared
+  database.ref(`/${room}/chat`).on("value", snap => {
+    const messages = snap.val();
+    if (!messages) {
+      // Chat was cleared
+      chatBox.innerHTML = "";
+      console.log("💬 Chat was cleared");
+    }
+  });
+
+  // 🔘 Host manual next
+  nextBtn.addEventListener('click', () => {
+    console.log("Next button clicked, isHost:", isHost);
+
+    if (!isHost) {
+      alert("Only the host can go to the next question!");
+      return;
+    }
+
+    database.ref(`/${room}/current`).once("value").then(snap => {
+      const current = snap.val() || 1;
+      console.log("Current question:", current);
+
+      if (current < 20) {
+        database.ref(`/${room}/current`).set(current + 1)
+          .then(() => {
+            console.log("Advanced to question:", current + 1);
+          })
+          .catch(error => {
+            console.error("Error advancing question:", error);
+          });
+      } else {
+        questionBox.innerText = "🎉 Game Over!";
+        alert("Game completed!");
+      }
+    });
+  });
+
+  // 🆕 Host new game
+  newGameBtn.addEventListener('click', async () => {
+    if (!confirm('Start a new game? This clears all answers, history, chat, and reactions for this room.')) return;
+
+    let password = hostPassword;
+    if (!password) {
+      password = prompt('Enter the host password to start a new game:') || '';
+    }
+
+    try {
+      const res = await fetch('/generate-questions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room, password })
+      });
+      const data = await res.json();
+      if (data.status !== 'success') {
+        alert('Could not start a new game: ' + (data.message || 'Unknown error.'));
+        return;
+      }
+      window.location.reload();
+    } catch (error) {
+      console.error("Error starting new game:", error);
+      alert('Could not start a new game. Please try again.');
+    }
+  });
+
+  // Show/hide controls based on host status
+  if (isHost) {
+    nextBtn.style.display = "inline-block";
+    newGameBtn.style.display = "inline-block";
+    clearChatBtn.style.display = "inline-block";
+  } else {
+    nextBtn.style.display = "none";
+    newGameBtn.style.display = "none";
+    clearChatBtn.style.display = "none";
+  }
+
+  console.log("Script loaded successfully");
+}
+
+// On load: auto-join when a session was already started (e.g. after "New Game"),
+// otherwise show the join screen.
+const savedJoin = sessionStorage.getItem('join');
+if (savedJoin) {
+  try {
+    const join = JSON.parse(savedJoin);
+    if (join && join.name) {
+      startGame(join.name, !!join.isHost, '');
+    } else {
+      showJoinScreen();
+    }
+  } catch (error) {
+    showJoinScreen();
+  }
+} else {
+  showJoinScreen();
+}
