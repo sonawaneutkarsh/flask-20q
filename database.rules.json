@@ -1,0 +1,52 @@
+{
+  "rules": {
+    "questions": {
+      ".read": true,
+      ".write": false
+    },
+    "$room": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "current": {
+        ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 30"
+      },
+      "questions": {
+        "$qnum": {
+          ".validate": "newData.isString() && newData.val().length <= 300"
+        }
+      },
+      "answers": {
+        "$qnum": {
+          "$player": {
+            ".validate": "newData.isString() && newData.val().length <= 500"
+          }
+        }
+      },
+      "players": {
+        "$player": {
+          ".validate": "newData.hasChild('name') && newData.child('name').isString() && newData.child('name').val().length <= 50"
+        }
+      },
+      "profiles": {
+        "$player": {
+          ".validate": "newData.hasChild('name') && newData.child('name').isString() && newData.child('name').val().length <= 50"
+        }
+      },
+      "chat": {
+        "$msgid": {
+          ".validate": "newData.hasChildren(['name','message']) && newData.child('name').isString() && newData.child('name').val().length <= 50 && newData.child('message').isString() && newData.child('message').val().length <= 500 && (!newData.hasChild('timestamp') || newData.child('timestamp').isNumber())"
+        }
+      },
+      "reactions": {
+        "$rid": {
+          ".validate": "newData.hasChild('emoji') && newData.child('emoji').isString() && newData.child('emoji').val().length <= 8"
+        }
+      },
+      "history": {
+        "$qnum": {
+          ".validate": "newData.hasChild('question') && newData.child('question').isString() && newData.hasChild('answers')"
+        }
+      }
+    }
+  }
+}

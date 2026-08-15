@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/**/*.py": {
+      "excludeFiles": "public/**"
+    }
+  },
+  "rewrites": [
+    { "source": "/", "destination": "/api/index" },
+    { "source": "/init-room", "destination": "/api/init-room" },
+    { "source": "/generate-questions", "destination": "/api/generate-questions" },
+    { "source": "/verify-host", "destination": "/api/verify-host" }
+  ]
+}
