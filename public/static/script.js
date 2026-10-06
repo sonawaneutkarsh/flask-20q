@@ -15,82 +15,12 @@ const database = firebase.database();
 const urlParams = new URLSearchParams(window.location.search);
 const room = urlParams.get("room") || "default-room";
 
-// 🎯 Join state (replaces the old prompt()-based login)
+// Join state (replaces the old prompt()-based login)
 let playerId = null;
 let isHost = false;
 let hostPassword = "";
 
-// 🎵 Music System
-let musicEnabled = true;
-let currentMusic = null;
-
-// Create audio elements for each theme
-const musicTracks = {
-  pav: new Audio('/static/pav.mp3'),
-  kari: new Audio('/static/kari.mp3'),
-  oman: new Audio('/static/oman.mp3'),
-  raj: new Audio('/static/raj.mp3'),
-  biswa: new Audio('/static/biswa.mp3')
-};
-
-// Set up music properties
-Object.values(musicTracks).forEach(audio => {
-  audio.loop = true;
-  audio.volume = 0.3;
-  audio.preload = 'auto';
-});
-
-function toggleMusic() {
-  musicEnabled = !musicEnabled;
-  const btn = document.getElementById('music-toggle');
-
-  if (musicEnabled) {
-    btn.textContent = '🔊 Music On';
-    btn.classList.remove('music-off');
-    // Resume current theme music
-    const currentTheme = localStorage.getItem('theme') || 'pav';
-    playThemeMusic(currentTheme);
-  } else {
-    btn.textContent = '🔇 Music Off';
-    btn.classList.add('music-off');
-    // Stop all music
-    stopAllMusic();
-  }
-
-  localStorage.setItem('musicEnabled', musicEnabled);
-}
-
-function playThemeMusic(theme) {
-  if (!musicEnabled) return;
-
-  // Stop current music
-  stopAllMusic();
-
-  // Play new theme music
-  if (musicTracks[theme]) {
-    currentMusic = musicTracks[theme];
-    currentMusic.currentTime = 0;
-    currentMusic.play().catch(e => {
-      console.log('Audio play failed:', e);
-      // Auto-enable music on first user interaction
-      document.addEventListener('click', () => {
-        if (musicEnabled && currentMusic) {
-          currentMusic.play().catch(err => console.log('Retry play failed:', err));
-        }
-      }, { once: true });
-    });
-  }
-}
-
-function stopAllMusic() {
-  Object.values(musicTracks).forEach(audio => {
-    audio.pause();
-    audio.currentTime = 0;
-  });
-  currentMusic = null;
-}
-
-// 🎮 Game variables
+// Game variables
 let currentQ = 1;
 let answered = false;
 let gameStarted = false; // Guard against startGame() being called twice (join retry / auto-join)
@@ -117,7 +47,7 @@ const emojiContainer = document.getElementById("emoji-reactions");
 const wordCloudContainer = document.getElementById("word-cloud");
 const profileContainer = document.getElementById("player-profiles");
 
-// 🔒 Escape user-controlled content before rendering it into the DOM
+// Escape user-controlled content before rendering it into the DOM
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, char => ({
     '&': '&amp;',
@@ -128,7 +58,7 @@ function escapeHtml(value) {
   })[char]);
 }
 
-// 👤 Player Profile System
+// Player Profile System
 function initializePlayerProfile() {
   const savedProfile = localStorage.getItem(`profile_${playerId}`);
   if (savedProfile) {
@@ -180,7 +110,7 @@ function updatePlayerStats(action) {
   database.ref(`/${room}/profiles/${playerId}`).set(playerProfiles[playerId]);
 }
 
-// 🎨 Theme System with Music
+// Theme system
 function setTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   localStorage.setItem('theme', theme);
@@ -189,32 +119,13 @@ function setTheme(theme) {
   document.querySelectorAll('.theme-btn').forEach(btn => btn.classList.remove('active'));
   const activeBtn = document.querySelector(`.theme-btn.${theme}`);
   if (activeBtn) activeBtn.classList.add('active');
-
-  // Play theme music
-  playThemeMusic(theme);
 }
 
-// Initialize theme and music
+// Initialize theme
 const savedTheme = localStorage.getItem('theme') || 'pav';
-const savedMusicEnabled = localStorage.getItem('musicEnabled');
-if (savedMusicEnabled !== null) {
-  musicEnabled = savedMusicEnabled === 'true';
-}
-
 setTheme(savedTheme);
 
-// Create music toggle button dynamically
-const musicToggleBtn = document.createElement('button');
-musicToggleBtn.id = 'music-toggle';
-musicToggleBtn.className = 'music-toggle-btn';
-musicToggleBtn.textContent = musicEnabled ? '🔊 Music On' : '🔇 Music Off';
-musicToggleBtn.onclick = toggleMusic;
-if (!musicEnabled) musicToggleBtn.classList.add('music-off');
-
-// Add music toggle to theme controls
-document.querySelector('.theme-controls').appendChild(musicToggleBtn);
-
-// 🧹 Clear History Function (host-only, like clear chat)
+// Clear History Function (host-only, like clear chat)
 function clearHistory() {
   if (!isHost) {
     alert("Only the host can clear the history!");
@@ -235,7 +146,7 @@ function clearHistory() {
 
 clearHistoryBtn.addEventListener('click', clearHistory);
 
-// 🧹 Clear Chat Function
+// Clear Chat Function
 function clearChat() {
   if (!isHost) {
     alert("Only the host can clear the chat!");
@@ -249,7 +160,6 @@ function clearChat() {
         // Clear local chat display
         chatBox.innerHTML = "";
         alert("Chat cleared! 🧹");
-        console.log("✅ Chat cleared by host");
       })
       .catch(error => {
         console.error("❌ Error clearing chat:", error);
@@ -260,7 +170,7 @@ function clearChat() {
 
 clearChatBtn.addEventListener('click', clearChat);
 
-// 🎭 Flying Emoji Reactions
+// Flying Emoji Reactions
 function sendReaction(emoji) {
   database.ref(`/${room}/reactions`).push({
     emoji: emoji,
@@ -286,7 +196,7 @@ function createFlyingEmoji(emoji) {
   }, 3000);
 }
 
-// ☁️ Word Cloud Generation
+// Word Cloud Generation
 function generateWordCloud(answers) {
   if (!answers || Object.keys(answers).length === 0) return;
 
@@ -325,7 +235,7 @@ function generateWordCloud(answers) {
   wordCloudContainer.style.display = 'block';
 }
 
-// 👥 Player profiles display
+// Player profiles display
 function updatePlayerProfilesDisplay() {
   let html = '<h3>👥 Players</h3>';
 
@@ -342,7 +252,7 @@ function updatePlayerProfilesDisplay() {
   profileContainer.innerHTML = html;
 }
 
-// 📄 Export Game Feature
+// Export Game Feature
 exportBtn.addEventListener('click', () => {
   exportGameResults();
 });
@@ -382,7 +292,7 @@ function exportGameResults() {
   alert('Game results exported successfully! 📄');
 }
 
-// 📝 Update answers history display
+// Update answers history display
 function updateAnswersHistory() {
   if (Object.keys(answersHistory).length === 0) {
     historyContent.innerHTML = '<p class="no-history">No answers yet...</p>';
@@ -413,9 +323,8 @@ function updateAnswersHistory() {
   historyContent.innerHTML = historyHTML;
 }
 
-// 🧠 Load and watch question
+// Load and watch question
 function loadQuestion(num) {
-  console.log("Loading question:", num);
 
   // Stop listening to the previous question's answers before switching, so
   // stale snapshots from earlier questions can't wipe the current view.
@@ -432,10 +341,8 @@ function loadQuestion(num) {
     const question = snapshot.val();
     if (question) {
       questionBox.innerText = question;
-      console.log("Question loaded:", question);
     } else {
       questionBox.innerText = "🎉 Game Over!";
-      console.log("Game over - no more questions");
     }
   }).catch(error => {
     console.error("Error loading question:", error);
@@ -487,7 +394,6 @@ function loadQuestion(num) {
       const total = Object.keys(players).length;
       const submitted = Object.keys(answers).length;
 
-      console.log(`Answers: ${submitted}/${total}`);
 
       if (submitted < total && total > 0) {
         waitingStatus.innerText = `Waiting for ${total - submitted} more answers...`;
@@ -498,10 +404,9 @@ function loadQuestion(num) {
   });
 }
 
-// 📤 Submit answer
+// Submit answer
 function submitAnswer() {
   const answer = answerInput.value.trim();
-  console.log("Submit clicked, answer:", answer, "answered:", answered);
 
   if (answered) {
     alert("You have already answered this question!");
@@ -515,7 +420,6 @@ function submitAnswer() {
 
   database.ref(`/${room}/answers/q${currentQ}/${playerId}`).set(answer)
     .then(() => {
-      console.log("Answer submitted successfully");
       answered = true;
       answerInput.value = "";
       submitBtn.textContent = "Submitted!";
@@ -530,10 +434,9 @@ function submitAnswer() {
     });
 }
 
-// 💬 Chat system
+// Chat system
 function sendChatMessage() {
   const msg = chatInput.value.trim();
-  console.log("Chat send clicked:", msg);
 
   if (!msg) {
     alert("Please enter a message!");
@@ -549,14 +452,13 @@ function sendChatMessage() {
     color: profile.color || '#333',
     timestamp: firebase.database.ServerValue.TIMESTAMP
   }).then(() => {
-    console.log("Chat message sent");
     chatInput.value = "";
   }).catch(error => {
     console.error("Error sending chat:", error);
   });
 }
 
-// 🎯 Join flow
+// Join flow
 const joinOverlay = document.getElementById("join-overlay");
 const joinNameInput = document.getElementById("join-name");
 const joinHostPasswordInput = document.getElementById("join-host-password");
@@ -621,7 +523,7 @@ joinHostPasswordInput.addEventListener('keypress', (e) => {
   if (e.key === 'Enter') joinGame();
 });
 
-// 🎮 Start the game for a joined player
+// Start the game for a joined player
 async function startGame(name, hostStatus, password) {
   // Only run the setup once — joining again (or the sessionStorage auto-join)
   // must not attach duplicate Firebase listeners or DOM handlers.
@@ -634,9 +536,8 @@ async function startGame(name, hostStatus, password) {
   sessionStorage.setItem('join', JSON.stringify({ name: playerId, isHost }));
   hideJoinScreen();
 
-  console.log("Game initialized for room:", room, "Player:", playerId, "Host:", isHost);
 
-  // 🔐 Sign in anonymously so the Realtime Database rules (auth != null) allow access
+  // Sign in anonymously so the Realtime Database rules (auth != null) allow access
   try {
     await firebase.auth().signInAnonymously();
   } catch (error) {
@@ -648,15 +549,14 @@ async function startGame(name, hostStatus, password) {
   // Initialize room and questions
   fetch(`/init-room?room=${encodeURIComponent(room)}`)
     .then(response => response.json())
-    .then(data => {
-      console.log("Room initialized:", data);
+    .then(() => {
       updatePlayerStats('game');
     })
     .catch(error => {
       console.error("Error initializing room:", error);
     });
 
-  // 👥 Track live players and profiles
+  // Track live players and profiles
   database.ref(`/${room}/players/${playerId}`).set({
     name: playerId,
     timestamp: firebase.database.ServerValue.TIMESTAMP
@@ -691,10 +591,9 @@ async function startGame(name, hostStatus, password) {
     createFlyingEmoji(reaction.emoji);
   });
 
-  // 👂 Listen for current question number
+  // Listen for current question number
   database.ref(`/${room}/current`).on("value", snapshot => {
     const q = snapshot.val() || 1;
-    console.log("Current question changed to:", q);
 
     // Reset submit button when question changes
     submitBtn.textContent = "Submit Answer";
@@ -710,7 +609,7 @@ async function startGame(name, hostStatus, password) {
     updateAnswersHistory();
   });
 
-  // 📤 Submit answer handlers
+  // Submit answer handlers
   submitBtn.addEventListener('click', submitAnswer);
   answerInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
@@ -719,7 +618,7 @@ async function startGame(name, hostStatus, password) {
     }
   });
 
-  // 💬 Chat handlers
+  // Chat handlers
   chatSend.addEventListener('click', sendChatMessage);
   chatInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
@@ -739,7 +638,6 @@ async function startGame(name, hostStatus, password) {
       `;
       chatBox.appendChild(msgEl);
       chatBox.scrollTop = chatBox.scrollHeight;
-      console.log("Chat message added:", data);
     }
   });
 
@@ -749,13 +647,11 @@ async function startGame(name, hostStatus, password) {
     if (!messages) {
       // Chat was cleared
       chatBox.innerHTML = "";
-      console.log("💬 Chat was cleared");
     }
   });
 
-  // 🔘 Host manual next
+  // Host manual next
   nextBtn.addEventListener('click', () => {
-    console.log("Next button clicked, isHost:", isHost);
 
     if (!isHost) {
       alert("Only the host can go to the next question!");
@@ -764,13 +660,9 @@ async function startGame(name, hostStatus, password) {
 
     database.ref(`/${room}/current`).once("value").then(snap => {
       const current = snap.val() || 1;
-      console.log("Current question:", current);
 
       if (current < 20) {
         database.ref(`/${room}/current`).set(current + 1)
-          .then(() => {
-            console.log("Advanced to question:", current + 1);
-          })
           .catch(error => {
             console.error("Error advancing question:", error);
           });
@@ -781,7 +673,7 @@ async function startGame(name, hostStatus, password) {
     });
   });
 
-  // 🆕 Host new game
+  // Host new game
   newGameBtn.addEventListener('click', async () => {
     if (!confirm('Start a new game? This clears all answers, history, chat, and reactions for this room.')) return;
 
@@ -819,7 +711,6 @@ async function startGame(name, hostStatus, password) {
     clearChatBtn.style.display = "none";
   }
 
-  console.log("Script loaded successfully");
 }
 
 // On load: auto-join when a session was already started (e.g. after "New Game"),
