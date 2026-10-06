@@ -7,11 +7,12 @@ import hmac
 import json
 import os
 import random
+import re
 import time
 
 import firebase_admin
-from firebase_admin import credentials, db
 from dotenv import load_dotenv
+from firebase_admin import credentials, db
 
 load_dotenv()
 
@@ -72,13 +73,33 @@ def get_db():
 # Host password
 # ---------------------------------------------------------------------------
 def host_password():
-    """Host password from env, defaulting to the legacy value."""
-    return os.getenv("HOST_PASSWORD", "host123")
+    """Host password from the HOST_PASSWORD env var ("" when unset)."""
+    return os.getenv("HOST_PASSWORD", "")
 
 
 def verify_host(password):
-    """Constant-time check of the host password."""
-    return hmac.compare_digest(str(password or ""), host_password())
+    """Constant-time check of the host password.
+
+    Fails closed: when HOST_PASSWORD is not set, nobody is the host.
+    """
+    expected = host_password()
+    if not expected:
+        return False
+    return hmac.compare_digest(str(password or "").encode("utf-8"), expected.encode("utf-8"))
+
+
+# Firebase keys cannot contain . $ # [ ] /, so room names are restricted.
+_ROOM_RE = re.compile(r"[A-Za-z0-9_-]{1,40}")
+DEFAULT_ROOM = "default-room"
+
+
+def normalize_room(room):
+    """Return a safe room name, or None when the name is not allowed."""
+    room = (room or DEFAULT_ROOM).strip() or DEFAULT_ROOM
+    return room if _ROOM_RE.fullmatch(room) else None
+
+
+INVALID_ROOM = (400, {"status": "error", "message": "Invalid room name."})
 
 
 # ---------------------------------------------------------------------------
@@ -86,8 +107,10 @@ def verify_host(password):
 # ---------------------------------------------------------------------------
 def init_room(room):
     """Ensure a room has questions and a current question pointer."""
+    room = normalize_room(room)
+    if room is None:
+        return INVALID_ROOM
     database = get_db()
-    room = (room or "default-room").strip() or "default-room"
 
     questions_ref = database.reference(f"/{room}/questions")
     if questions_ref.get() is None:
@@ -108,6 +131,9 @@ _rate_attempts = {}
 
 def _rate_limited(key):
     now = time.monotonic()
+    # Drop keys whose attempts have all expired so the dict does not grow forever.
+    for k in [k for k, v in _rate_attempts.items() if v and now - v[-1] >= _RATE_WINDOW]:
+        del _rate_attempts[k]
     stamps = [t for t in _rate_attempts.get(key, []) if now - t < _RATE_WINDOW]
     if len(stamps) >= _RATE_LIMIT:
         _rate_attempts[key] = stamps
@@ -119,14 +145,18 @@ def _rate_limited(key):
 
 def generate_questions(room, password, ip=None):
     """Host-only: deal a fresh set of questions and reset the room."""
-    if not verify_host(password):
-        return 403, {"status": "error", "message": "Invalid host password."}
-
+    # Rate-limit before the password check so failed guesses are throttled too.
     if _rate_limited(ip or "unknown"):
         return 429, {"status": "error", "message": "Too many requests. Try again later."}
 
+    if not verify_host(password):
+        return 403, {"status": "error", "message": "Invalid host password."}
+
+    room = normalize_room(room)
+    if room is None:
+        return INVALID_ROOM
+
     database = get_db()
-    room = (room or "default-room").strip() or "default-room"
     questions = pick_questions()
 
     # One request per update: new questions, reset pointer, clear game state.
@@ -144,6 +174,19 @@ def generate_questions(room, password, ip=None):
     return 200, {"status": "success", "questions": questions, "room": room}
 
 
+def check_host(password, ip=None):
+    """Rate-limited host-password check used by /verify-host.
+
+    Every player calls this on join; only attempts that include a password
+    count toward the limit, so a large room on one network is not blocked.
+    """
+    if not password:
+        return 200, {"isHost": False}
+    if _rate_limited(f"verify:{ip or 'unknown'}"):
+        return 429, {"status": "error", "message": "Too many requests. Try again later."}
+    return 200, {"isHost": verify_host(password)}
+
+
 # ---------------------------------------------------------------------------
 # Page + HTTP helpers (shared by Flask and the api/ handlers)
 # ---------------------------------------------------------------------------
@@ -158,6 +201,14 @@ def get_query_param(query_string, name, default=None):
 
     values = parse_qs(query_string)
     return values.get(name, [default])[0]
+
+
+def client_ip(handler):
+    """Best-effort client IP for a serverless handler (first X-Forwarded-For hop)."""
+    forwarded = handler.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return handler.client_address[0]
 
 
 def respond_json(handler, status, payload):

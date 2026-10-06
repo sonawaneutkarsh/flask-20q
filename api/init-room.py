@@ -9,6 +9,6 @@ class handler(BaseHTTPRequestHandler):
         room = game.get_query_param(self.path.split("?", 1)[1] if "?" in self.path else "", "room", "default-room")
         try:
             status, payload = game.init_room(room)
-        except Exception as exc:  # noqa: BLE001 - report any backend failure as JSON
-            status, payload = 500, {"status": "error", "message": str(exc)}
+        except Exception:  # noqa: BLE001 - never leak exception text to the client
+            status, payload = 500, {"status": "error", "message": "Server error."}
         game.respond_json(self, status, payload)

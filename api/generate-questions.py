@@ -11,8 +11,8 @@ class handler(BaseHTTPRequestHandler):
             status, payload = game.generate_questions(
                 body.get("room", "default-room"),
                 body.get("password", ""),
-                ip=self.client_address[0],
+                ip=game.client_ip(self),
             )
-        except Exception as exc:  # noqa: BLE001 - report any backend failure as JSON
-            status, payload = 500, {"status": "error", "message": str(exc)}
+        except Exception:  # noqa: BLE001 - never leak exception text to the client
+            status, payload = 500, {"status": "error", "message": "Server error."}
         game.respond_json(self, status, payload)

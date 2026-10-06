@@ -1,4 +1,4 @@
-"""Local development / Freebuff preview server for flask-20q.
+"""Local development server for flask-20q.
 
 Production deploys use the serverless functions in api/; this Flask app
 exists so `python app.py` gives the same experience locally.
@@ -24,7 +24,8 @@ def index():
 @app.route("/verify-host", methods=["POST"])
 def verify_host():
     password = (request.get_json(silent=True) or {}).get("password", "")
-    return jsonify({"isHost": game.verify_host(password)})
+    status, payload = game.check_host(password, ip=request.remote_addr)
+    return jsonify(payload), status
 
 
 @app.route("/init-room")
@@ -48,4 +49,10 @@ def generate_questions():
 if __name__ == "__main__":
     # Fail fast locally if Firebase isn't configured.
     game.ensure_firebase()
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "3000")), debug=True)
+    # Safe defaults: localhost only, debugger off. Override with HOST=0.0.0.0
+    # or FLASK_DEBUG=1 for local development on a trusted network.
+    app.run(
+        host=os.getenv("HOST", "127.0.0.1"),
+        port=int(os.getenv("PORT", "3000")),
+        debug=os.getenv("FLASK_DEBUG") == "1",
+    )
